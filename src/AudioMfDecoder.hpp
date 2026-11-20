@@ -11,6 +11,7 @@
 #include <wrl/client.h>
 
 #include <algorithm>
+#include <atomic>
 #include <cstdint>
 #include <cstring>
 #include <string>
@@ -93,7 +94,7 @@ namespace GakuAudio
 		uint32_t sampleRate{0};
 		uint32_t channels{0};
 		uint64_t totalFrames{0};
-		uint64_t cursorFrames{0};
+		std::atomic<uint64_t> cursorFrames{0};
 		std::vector<float> pending;
 		size_t pendingReadIndex{0};
 		bool mfStarted{false};
@@ -129,7 +130,7 @@ namespace GakuAudio
 					}
 					self->pendingReadIndex += static_cast<size_t>(take) * ch;
 					written += take;
-					self->cursorFrames += take;
+					self->cursorFrames.fetch_add(take, std::memory_order_release);
 					if (self->pendingReadIndex >= self->pending.size())
 					{
 						self->pending.clear();
@@ -197,7 +198,7 @@ namespace GakuAudio
 			if (FAILED(hr)) return MA_ERROR;
 			self->pending.clear();
 			self->pendingReadIndex = 0;
-			self->cursorFrames = frameIndex;
+			self->cursorFrames.store(frameIndex, std::memory_order_release);
 			return MA_SUCCESS;
 		}
 
@@ -218,7 +219,7 @@ namespace GakuAudio
 		{
 			auto* self = reinterpret_cast<MfDataSource*>(pDataSource);
 			if (!self || !self->initialized || !pCursor) return MA_INVALID_OPERATION;
-			*pCursor = self->cursorFrames;
+			*pCursor = self->cursorFrames.load(std::memory_order_acquire);
 			return MA_SUCCESS;
 		}
 
@@ -264,7 +265,7 @@ namespace GakuAudio
 		src.sampleRate = 0;
 		src.channels = 0;
 		src.totalFrames = 0;
-		src.cursorFrames = 0;
+		src.cursorFrames.store(0, std::memory_order_release);
 	}
 
 	inline bool InitMfDataSource(const std::wstring& widePath, MfDataSource& src)
@@ -350,7 +351,7 @@ namespace GakuAudio
 		src.sampleRate = sr;
 		src.channels = ch;
 		src.totalFrames = total;
-		src.cursorFrames = 0;
+		src.cursorFrames.store(0, std::memory_order_release);
 		src.initialized = true;
 		return true;
 	}
