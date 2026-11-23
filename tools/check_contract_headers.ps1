@@ -19,7 +19,9 @@ $RepoRoot = [IO.Path]::GetFullPath($RepoRoot)
 $localInclude = Join-Path $RepoRoot 'include'
 
 if ([string]::IsNullOrWhiteSpace($LoaderIncludeRoot)) {
-    $LoaderIncludeRoot = [IO.Path]::GetFullPath((Join-Path $RepoRoot '..\..\GakuLoader\dev\include'))
+    $mainLoader = [IO.Path]::GetFullPath((Join-Path $RepoRoot '..\..\GakuLoader\main\include'))
+    $devLoader = [IO.Path]::GetFullPath((Join-Path $RepoRoot '..\..\GakuLoader\dev\include'))
+    $LoaderIncludeRoot = if (Test-Path -LiteralPath $mainLoader -PathType Container) { $mainLoader } else { $devLoader }
 } else {
     $LoaderIncludeRoot = [IO.Path]::GetFullPath($LoaderIncludeRoot)
 }
