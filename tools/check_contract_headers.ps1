@@ -36,6 +36,17 @@ $headers = @(
 $failures = 0
 $checked = 0
 
+function Get-NormalizedHeaderHash([string]$Path) {
+    $text = [IO.File]::ReadAllText($Path, [Text.Encoding]::UTF8) -replace "`r`n", "`n"
+    $bytes = [Text.Encoding]::UTF8.GetBytes($text)
+    $sha = [Security.Cryptography.SHA256]::Create()
+    try {
+        return ([BitConverter]::ToString($sha.ComputeHash($bytes)) -replace '-', '')
+    } finally {
+        $sha.Dispose()
+    }
+}
+
 if (-not (Test-Path -LiteralPath $LoaderIncludeRoot -PathType Container)) {
     Write-Host ("  SKIP: GakuLoader checkout not found at {0}" -f $LoaderIncludeRoot) -ForegroundColor Yellow
     foreach ($header in $headers) {
@@ -67,8 +78,8 @@ foreach ($header in $headers) {
         continue
     }
 
-    $localHash = (Get-FileHash -LiteralPath $localFile -Algorithm SHA256).Hash
-    $siblingHash = (Get-FileHash -LiteralPath $siblingFile -Algorithm SHA256).Hash
+    $localHash = Get-NormalizedHeaderHash $localFile
+    $siblingHash = Get-NormalizedHeaderHash $siblingFile
     $checked++
     if ($localHash -ne $siblingHash) {
         Write-Host ("  DRIFT: {0} (GakuLoader)" -f $header) -ForegroundColor Red
