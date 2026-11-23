@@ -86,6 +86,7 @@
     <ClInclude Include="include\GakuPaths.h" />
     <ClInclude Include="include\GakuPaths.hpp" />
     <ClInclude Include="include\GakuPlugin.h" />
+    <ClInclude Include="include\GakuPluginMetadata.h" />
     <ClInclude Include="include\GkAudioMetadata.hpp" />
     <ClInclude Include="src\AudioDspGraph.hpp" />
     <ClInclude Include="src\AudioMfDecoder.hpp" />

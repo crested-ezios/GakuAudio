@@ -1,14 +1,26 @@
 // SPDX-License-Identifier: MIT
 #include "../include/GakuPlugin.h"
+#include "../include/GakuPluginMetadata.h"
 #include "../include/GakuPaths.hpp"
 #include "../include/GakuAudio.h"
 #include "GakuAudioEngine.hpp"
 
 #include <filesystem>
+#include <iterator>
 #include <memory>
 
 namespace
 {
+	const char* const kPluginMaintainers[] = {
+		"crested-ezios",
+	};
+
+	const GakuPluginLocalizedTextV1 kPluginLocalizedSummaries[] = {
+		{"en", "Native multi-format audio decoder, spatial DSP graph, and offline WAV renderer for GakuLoader."},
+		{"zh-Hans", "面向 GakuLoader 的原生多格式音频解码器、空间 DSP 处理图与离线 WAV 渲染插件。"},
+		{"zh-Hant", "面向 GakuLoader 的原生多格式音訊解碼器、空間 DSP 處理圖與離線 WAV 渲染外掛。"},
+		{"ja", "GakuLoader 向けのネイティブ多形式オーディオデコーダー、空間 DSP グラフおよびオフライン WAV レンダラープラグイン。"},
+	};
 	struct PluginContext
 	{
 		GakuHostApi host{};
@@ -155,5 +167,36 @@ extern "C" GAKU_PLUGIN_EXPORT GakuStatus GakuPlugin_Query(uint32_t requestedAbi,
 	desc.activate = &Activate;
 	desc.shutdown = &Shutdown;
 	*output = desc;
+	return GAKU_OK;
+}
+
+extern "C" GAKU_PLUGIN_EXPORT GakuStatus GakuPlugin_QueryMetadata(
+	uint32_t requestedAbi, uint32_t outputSize, GakuPluginMetadataV1* output)
+{
+	if (requestedAbi != GAKU_METADATA_ABI_VERSION) return GAKU_E_VERSION;
+	if (!output) return GAKU_E_INVALID_ARGUMENT;
+	if (outputSize < sizeof(GakuPluginMetadataV1)) return GAKU_E_SIZE;
+
+	GakuPluginMetadataV1 meta{};
+	meta.abiVersion = GAKU_METADATA_ABI_VERSION;
+	meta.structSize = sizeof(GakuPluginMetadataV1);
+	meta.originalAuthor = "GakuAudio Contributors";
+	meta.maintainerCount = static_cast<uint32_t>(std::size(kPluginMaintainers));
+	meta.maintainers = kPluginMaintainers;
+	meta.subVersion = "";
+	meta.releaseChannel = "stable";
+	meta.summary = "Native multi-format audio decoder, spatial DSP graph, and offline WAV renderer for GakuLoader.";
+	meta.localizedSummaryCount = static_cast<uint32_t>(std::size(kPluginLocalizedSummaries));
+	meta.localizedSummaries = kPluginLocalizedSummaries;
+	meta.repositoryUrl = "https://github.com/crested-ezios/GakuAudio";
+	meta.releaseUrl = "https://github.com/crested-ezios/GakuAudio/releases";
+	meta.issuesUrl = "https://github.com/crested-ezios/GakuAudio/issues";
+	meta.license = "MIT";
+	meta.minLoaderVersion = "1.1.0";
+	meta.dependencyCount = 0u;
+	meta.dependencies = nullptr;
+	meta.auxiliaryDllCount = 0u;
+	meta.auxiliaryDlls = nullptr;
+	*output = meta;
 	return GAKU_OK;
 }

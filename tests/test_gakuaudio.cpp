@@ -1,5 +1,12 @@
 // SPDX-License-Identifier: MIT
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+
 #include "GakuAudio.h"
+#include "GakuPlugin.h"
+#include "GakuPluginMetadata.h"
 #include "GkAudioMetadata.hpp"
 #include "GakuAudioEngine.hpp"
 
@@ -193,6 +200,97 @@ namespace
 		for (float v : stereo) sumSq += static_cast<double>(v) * static_cast<double>(v);
 		return std::sqrt(sumSq / static_cast<double>((std::max<size_t>)(1, stereo.size())));
 	}
+
+	std::filesystem::path ResolvePluginDllPath()
+	{
+		std::error_code ec;
+		wchar_t envBuf[32768]{};
+		const DWORD envLen = GetEnvironmentVariableW(L"GAKUAUDIO_TEST_DLL", envBuf, static_cast<DWORD>(std::size(envBuf)));
+		if (envLen > 0 && envLen < std::size(envBuf))
+		{
+			const std::filesystem::path p(envBuf);
+			if (std::filesystem::is_regular_file(p, ec)) return p;
+		}
+
+		wchar_t exeBuf[32768]{};
+		const DWORD exeLen = GetModuleFileNameW(nullptr, exeBuf, static_cast<DWORD>(std::size(exeBuf)));
+		if (exeLen > 0 && exeLen < std::size(exeBuf))
+		{
+			const std::filesystem::path sibling =
+				std::filesystem::path(exeBuf).parent_path().parent_path() / L"native" / L"GakuAudio.dll";
+			if (std::filesystem::is_regular_file(sibling, ec)) return sibling;
+		}
+
+		const std::filesystem::path cwdDll = std::filesystem::current_path(ec) / L"build" / L"native" / L"GakuAudio.dll";
+		if (std::filesystem::is_regular_file(cwdDll, ec)) return cwdDll;
+		return {};
+	}
+
+	void TestPluginDllAbiAndMetadata()
+	{
+		const std::filesystem::path dllPath = ResolvePluginDllPath();
+		if (dllPath.empty())
+		{
+			std::printf("[INFO] Skipping DLL ABI & metadata test (build\\native\\GakuAudio.dll not present)\n");
+			return;
+		}
+
+		HMODULE mod = LoadLibraryW(dllPath.c_str());
+		assert(mod != nullptr);
+
+		auto queryFn = reinterpret_cast<FnGakuPlugin_Query>(GetProcAddress(mod, "GakuPlugin_Query"));
+		assert(queryFn != nullptr);
+		GakuPluginDescriptor desc{};
+		assert(queryFn(999u, sizeof(desc), &desc) == GAKU_E_VERSION);
+		assert(queryFn(GAKU_ABI_VERSION, sizeof(desc), nullptr) != GAKU_OK);
+		assert(queryFn(GAKU_ABI_VERSION, sizeof(desc) - 1u, &desc) == GAKU_E_SIZE);
+		assert(queryFn(GAKU_ABI_VERSION, sizeof(desc), &desc) == GAKU_OK);
+		assert(desc.abiVersion == GAKU_ABI_VERSION);
+		assert(desc.structSize == sizeof(GakuPluginDescriptor));
+		assert(desc.id && std::string(desc.id) == "gakuaudio");
+		assert(desc.name && std::string(desc.name) == "GakuAudio");
+		assert(desc.version && std::string(desc.version) == "0.1.0");
+		assert(desc.activate != nullptr && desc.shutdown != nullptr);
+
+		auto queryMetaFn = reinterpret_cast<FnGakuPlugin_QueryMetadata>(GetProcAddress(mod, "GakuPlugin_QueryMetadata"));
+		assert(queryMetaFn != nullptr);
+		GakuPluginMetadataV1 meta{};
+		assert(queryMetaFn(999u, sizeof(meta), &meta) == GAKU_E_VERSION);
+		assert(queryMetaFn(GAKU_METADATA_ABI_VERSION, sizeof(meta), nullptr) == GAKU_E_INVALID_ARGUMENT);
+		assert(queryMetaFn(GAKU_METADATA_ABI_VERSION, sizeof(meta) - 1u, &meta) == GAKU_E_SIZE);
+		assert(queryMetaFn(GAKU_METADATA_ABI_VERSION, sizeof(meta), &meta) == GAKU_OK);
+
+		assert(meta.abiVersion == GAKU_METADATA_ABI_VERSION);
+		assert(meta.structSize == sizeof(GakuPluginMetadataV1));
+		assert(meta.originalAuthor && std::string(meta.originalAuthor) == "GakuAudio Contributors");
+		assert(meta.maintainerCount == 1u && meta.maintainers && meta.maintainers[0] &&
+			std::string(meta.maintainers[0]) == "crested-ezios");
+		assert(meta.reserved0 == 0u);
+		assert(meta.subVersion && std::string(meta.subVersion).empty());
+		assert(meta.releaseChannel && std::string(meta.releaseChannel) == "stable");
+		assert(meta.summary &&
+			std::string(meta.summary) == "Native multi-format audio decoder, spatial DSP graph, and offline WAV renderer for GakuLoader.");
+		assert(meta.localizedSummaryCount == 4u && meta.localizedSummaries != nullptr);
+		assert(meta.reserved1 == 0u);
+		const char* expectedLangs[] = {"en", "zh-Hans", "zh-Hant", "ja"};
+		for (uint32_t i = 0; i < 4u; ++i)
+		{
+			assert(meta.localizedSummaries[i].languageTag &&
+				std::string(meta.localizedSummaries[i].languageTag) == expectedLangs[i]);
+			assert(meta.localizedSummaries[i].text && meta.localizedSummaries[i].text[0] != '\0');
+		}
+		assert(std::string(meta.localizedSummaries[0].text) == std::string(meta.summary));
+		assert(meta.repositoryUrl && std::string(meta.repositoryUrl) == "https://github.com/crested-ezios/GakuAudio");
+		assert(meta.releaseUrl && std::string(meta.releaseUrl) == "https://github.com/crested-ezios/GakuAudio/releases");
+		assert(meta.issuesUrl && std::string(meta.issuesUrl) == "https://github.com/crested-ezios/GakuAudio/issues");
+		assert(meta.license && std::string(meta.license) == "MIT");
+		assert(meta.minLoaderVersion && std::string(meta.minLoaderVersion) == "1.1.0");
+		assert(meta.dependencyCount == 0u && meta.dependencies == nullptr && meta.reserved2 == 0u);
+		assert(meta.auxiliaryDllCount == 0u && meta.auxiliaryDlls == nullptr && meta.reserved3 == 0u);
+
+		FreeLibrary(mod);
+		std::printf("GakuAudio DLL ABI & metadata tests passed!\n");
+	}
 }
 
 int main()
@@ -343,6 +441,9 @@ int main()
 		std::error_code ec;
 		std::filesystem::remove_all(tempDir, ec);
 	}
+
+	// 4. Compiled plugin DLL ABI & metadata validation
+	TestPluginDllAbiAndMetadata();
 
 	std::printf("GakuAudio tests passed!\n");
 	return 0;
